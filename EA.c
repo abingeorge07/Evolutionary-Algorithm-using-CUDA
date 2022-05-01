@@ -7,14 +7,29 @@
 gcc EA.c -lm -o EA
 ./EA
 */
+#define totalIters 10000
+int numberCities=200;
+int population = 1000;
 
-int numberCities=10000;
-int population = 100;
+float max =0;
+float min=FLT_MAX;
 
-int xLimit= 100;
-int yLimit= 100;
+int xLimit= 10;
+int yLimit= 0;
 
 float global_minDis = FLT_MAX;
+
+double interval(struct timespec start, struct timespec end)
+{
+  struct timespec temp;
+  temp.tv_sec = end.tv_sec - start.tv_sec;
+  temp.tv_nsec = end.tv_nsec - start.tv_nsec;
+  if (temp.tv_nsec < 0) {
+    temp.tv_sec = temp.tv_sec - 1;
+    temp.tv_nsec = temp.tv_nsec + 1000000000;
+  }
+  return (((double)temp.tv_sec) + ((double)temp.tv_nsec)*1.0e-9);
+}
 
 void setup(float* x, float* y, int*in)
 {
@@ -22,6 +37,12 @@ void setup(float* x, float* y, int*in)
     for(i=0; i<numberCities; i++)
     {
         x[i]= ((float)rand()/(float)RAND_MAX)*xLimit;
+        if(x[i]>max){
+            max=x[i];
+        }
+        if(x[i]<min){
+            min=x[i];
+        }
         y[i]= ((float)rand()/(float)RAND_MAX)*yLimit;
         in[i]=i;
     }
@@ -121,30 +142,18 @@ void fitnessFun(float* fitVal , float* dis){
     }
 }
 
-void mutate( int indexi, int genes[][numberCities], int indexj, float* fitVal, float rate){
+void mutate( int indexi, int genes[][numberCities], int indexj, float* fitVal, float rate, int* bestSoFar){
 
-    if(fitVal[indexi]>= fitVal[indexj])
-    {
-        // do nothing, but evolve
-        int num_switches = floor(rate*numberCities);
-        int i, ind1, ind2, hold;
-        for(i=0; i<num_switches; i++){
-            ind1 = round(((float)rand()/(float)RAND_MAX)*(numberCities-1));
-            ind2 = round(((float)rand()/(float)RAND_MAX)*(numberCities-1));
-            hold = genes[indexi][ind1];
-            genes[indexi][ind1]= genes[indexi][ind2];
-            genes[indexi][ind2]= hold;
-        }
-    }else{
         // includes crossover
         int num_chosen = floor(rate*numberCities);
         int ind1 = round(((float)rand()/(float)RAND_MAX)*(numberCities-1));
         int temporary[numberCities];
-        int i,j,hold;
+        int i,j,hold, ind2;
         int flag; // 1->true, 0-> false
+
         for(i=0; i<num_chosen; i++){
             temporary[i]= genes[indexj][ind1];
-
+            // temporary[i] = bestSoFar[ind1];
             if(ind1== numberCities-1){
                 ind1=0;
             }
@@ -165,7 +174,7 @@ void mutate( int indexi, int genes[][numberCities], int indexj, float* fitVal, f
             }
 
             if (flag==0){
-                genes[indexi][next];
+                temporary[next]=hold;
                 next++;
             }
 
@@ -174,28 +183,48 @@ void mutate( int indexi, int genes[][numberCities], int indexj, float* fitVal, f
             }
         }
 
-    }
+        for(i=0; i<numberCities; i++){
+            genes[indexi][i]= temporary[i];
+        }
+
+
+
+
+   // do nothing, but evolve
+   
+    ind1 = round(((float)rand()/(float)RAND_MAX)*(numberCities-1));
+    // ind2 = round(((float)rand()/(float)RAND_MAX)*(numberCities-1));
+    ind2 = (ind1+1)%numberCities;
+    hold = genes[indexi][ind1];
+    genes[indexi][ind1]= genes[indexi][ind2];
+    genes[indexi][ind2]= hold;
+   
+    
+
 
 }
 
-void EA(int genes[][numberCities], float* fitVal){
+void EA(int genes[][numberCities], float* fitVal, int local_popMinIndex, int iters, int* bestSoFar){
     int i,j;
-    float choose, start;
+    float choose, start,rate,frac;
     int end;
     for (i=0; i<population; i++){
-        choose = ((float)rand()/(float)RAND_MAX);
-        start =0;
-        end =0;
-        for (j=0; j<population; j++){            
-            if( (choose>start) && (choose< (start+fitVal[end]))){
-                mutate(i,genes,j, fitVal, 0.1);
-                break;
-            }
-            else{
-                start = start+fitVal[end];
-                end=end+1;
-            }
-        }
+        // choose = ((float)rand()/(float)RAND_MAX);
+        // start =0;
+        // end =0;
+        // for (j=0; j<population; j++){            
+        //     if( (choose>start) && (choose< (start+fitVal[end]))){
+        //         mutate(i,genes,local_popMinIndex, fitVal, 0.8);
+        //         break;
+        //     }
+        //     else{
+        //         start = start+fitVal[end];
+        //         end=end+1;
+        //     }
+        // }
+        frac = iters/totalIters;
+        rate = ((float) rand()/ (float)RAND_MAX)*(1-frac);
+        mutate(i,genes,local_popMinIndex, fitVal, rate, bestSoFar);
     }
 }
 
@@ -205,6 +234,13 @@ void printRelevantInfo(float local_dist){
     printf("Minimum Local Dis in this Iteration is %f. \nMinimum Global Dis is %f.\n\n\n", local_dist, global_minDis);
 }
 
+void printCityLoc (float *x, float* y){
+    int i;
+
+    for(i=0; i<numberCities; i++){
+        printf("Index %d: x = %f y=%f \n", i, x[i], y[i]);
+    }
+}
 
 int main()
 {
@@ -220,26 +256,35 @@ int main()
     int bestSoFar[numberCities];
     //genes where each row represent one gene 
     int genes[population][numberCities];
+    struct timespec time_start, time_stop;
+    double time_stamp;
 
 
     //responsible for setting up an array of 10 coordinate points for each city
     setup(xCoord, yCoord, indices);
     assignGene(genes, xCoord, yCoord, indices);
+    clock_gettime(CLOCK_REALTIME, &time_start);
     distanceCalc(xCoord, yCoord, genes, dis, &local_popMinIndex, &local_min_dist, bestSoFar);
     printf("Iteration 1\n\n");
     printRelevantInfo(local_min_dist);
     int iter=2;
     
-    while(iter<=100){
+    float bestdisever= max-min;
+
+    while(iter<=totalIters ){//&& local_min_dist!=bestdisever){
         // printDis(dis, popMinIndex);
         fitnessFun(fitVal, dis);
-        EA(genes, fitVal);
+        EA(genes, fitVal,local_popMinIndex,iter, bestSoFar);
         distanceCalc(xCoord, yCoord, genes, dis, &local_popMinIndex, &local_min_dist, bestSoFar);
         printf("Iteration %d\n\n", iter);
         printRelevantInfo(local_min_dist);
         iter++;
     }
 
+    clock_gettime(CLOCK_REALTIME, &time_stop);
+    time_stamp = interval(time_start, time_stop);
+    
+    printf("Max =%f, Min =%f\n Best Dist = %f \n\n", max, min,max-min);
     printf("Following is the best sequence: \n");
 
     for(i=0; i<numberCities; i++){
@@ -248,6 +293,8 @@ int main()
 
     printf("\n");
 
+    // printCityLoc(xCoord, yCoord);
+    printf("\nCPU time: %f (sec)\n\n", time_stamp);
     return 0;
 
 }
